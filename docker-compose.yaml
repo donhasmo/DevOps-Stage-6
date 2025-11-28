@@ -4,25 +4,32 @@ services:
   traefik:
     image: traefik:latest
     command:
-      - "--api.insecure=true"
+      - "--api.insecure=false"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
-      # - "--entrypoints.websecure.address=:443"
-      # - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
-      # - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      # - "--certificatesresolvers.myresolver.acme.httpChallenge.entryPoint=web"
-      # - "--certificatesresolvers.myresolver.acme.httpChallenge=true"
-      # - "--certificatesresolvers.myresolver.acme.email=${LETSENCRYPT_EMAIL}"
-      # - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--certificatesresolvers.myresolver.acme.email=alhassani.y1k@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--accesslog=true"
+      - "--log.level=DEBUG"
     ports:
       - "80:80"
-      # - "443:443"
+      - "443:443"
       - "8088:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # - traefik_acme:/letsencrypt
+      - traefik_acme:/letsencrypt
     restart: unless-stopped
+    labels:
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=*"
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.cors.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.cors.headers.addvaryheader=true"
     networks:
       - web
 
@@ -30,14 +37,11 @@ services:
     build: ./frontend
     labels:
       - "traefik.enable=true"
-      # - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.frontend.rule=Host(`localhost`)"
-      # - "traefik.http.routers.frontend.tls=true"
-      # - "traefik.http.services.frontend.loadbalancer.server.port=80"
+      - "traefik.http.routers.frontend.rule=Host(`hasmo.duckdns`)"
+      - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.services.frontend.loadbalancer.server.port=8080"
-      # - "traefik.http.routers.frontend.entrypoints=websecure"
-      - "traefik.http.routers.frontend.entrypoints=web"
-      # - "traefik.http.routers.frontend.tls.certresolver=myresolver"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
     env_file:
       - .env
     depends_on:
@@ -55,14 +59,13 @@ services:
       - "8081:8081"
     labels:
       - "traefik.enable=true"
-      # - "traefik.http.routers.auth.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth/`)"
-      - "traefik.http.routers.auth.rule=Host(`localhost`) && PathPrefix(`/api/auth/`)"
-      # - "traefik.http.routers.auth.entrypoints=websecure"
-      - "traefik.http.routers.auth.entrypoints=web"
-      - "traefik.http.middlewares.strip-auth.stripprefix.prefixes=/api/auth"
-      - "traefik.http.routers.auth.middlewares=strip-auth"
-      - "traefik.http.services.auth.loadbalancer.server.port=8081"
-      # - "traefik.http.routers.auth.tls.certresolver=myresolver"
+      - "traefik.http.routers.auth-api.rule=Host(`hasmo.duckdns.org`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth-api.entrypoints=websecure"
+      - "traefik.http.routers.auth-api.tls=true"
+      - "traefik.http.routers.auth-api.tls.certresolver=myresolver"
+      - "traefik.http.services.auth-api.loadbalancer.server.port=8081"
+      - "traefik.http.middlewares.auth-api-strip.stripprefix.prefixes=/api/auth"
+      - "traefik.http.routers.auth-api.middlewares=auth-api-strip"
     env_file:
       - .env
     depends_on:
@@ -77,14 +80,13 @@ services:
       - "8082:8082"
     labels:
       - "traefik.enable=true"
-      # - "traefik.http.routers.todos.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/todos/`)"
-      - "traefik.http.routers.todos.rule=Host(`localhost`) && PathPrefix(`/api/todos/`)"
-      # - "traefik.http.routers.todos.entrypoints=websecure"
-      - "traefik.http.routers.todos.entrypoints=web"
-      - "traefik.http.middlewares.strip-todos.stripprefix.prefixes=/api/todos"
-      - "traefik.http.routers.todos.middlewares=strip-todos"
-      - "traefik.http.services.todos.loadbalancer.server.port=8082"
-      # - "traefik.http.routers.todos.tls.certresolver=myresolver"
+      - "traefik.http.routers.todos-api.rule=Host(`hasmo.duckdns.org`) && PathPrefix(`/api/todos`)"
+      - "traefik.http.routers.todos-api.entrypoints=websecure"
+      - "traefik.http.routers.todos-api.tls=true"
+      - "traefik.http.routers.todos-api.tls.certresolver=myresolver"
+      - "traefik.http.services.todos-api.loadbalancer.server.port=8082"
+      - "traefik.http.middlewares.todos-api-strip.stripprefix.prefixes=/api/todos"
+      - "traefik.http.routers.todos-api.middlewares=todos-api-strip"
     env_file:
       - .env
     depends_on:
@@ -99,14 +101,13 @@ services:
       - "8083:8083"
     labels:
       - "traefik.enable=true"
-      # - "traefik.http.routers.users.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users/`)"
-      - "traefik.http.routers.users.rule=Host(`localhost`) && PathPrefix(`/api/users/`)"
-      # - "traefik.http.routers.users.entrypoints=websecure"
-      - "traefik.http.routers.users.entrypoints=web"
-      - "traefik.http.middlewares.strip-users.stripprefix.prefixes=/api/users"
-      - "traefik.http.routers.users.middlewares=strip-users"
-      - "traefik.http.services.users.loadbalancer.server.port=8083"
-      # - "traefik.http.routers.users.tls.certresolver=myresolver"
+      - "traefik.http.routers.users-api.rule=Host(`todoapp-devops.duckdns.org`) && PathPrefix(`/api/users`)"
+      - "traefik.http.routers.users-api.entrypoints=websecure"
+      - "traefik.http.routers.users-api.tls=true"
+      - "traefik.http.routers.users-api.tls.certresolver=myresolver"
+      - "traefik.http.services.users-api.loadbalancer.server.port=8083"
+      - "traefik.http.middlewares.users-api-strip.stripprefix.prefixes=/api/users"
+      - "traefik.http.routers.users-api.middlewares=users-api-strip"
     env_file:
       - .env
     networks:
@@ -121,8 +122,6 @@ services:
       - redis-queue
     networks:
       - backend
-    # expose:
-    #   - "9000"
 
   redis-queue:
     image: redis:7-alpine
