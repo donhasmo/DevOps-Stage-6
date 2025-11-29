@@ -40,7 +40,7 @@
 # --- Ensure Traefik ACME directory and acme.json exist with correct permissions ---
 - name: Ensure Traefik ACME directory exists on host
   ansible.builtin.file:
-    path: {{ app_dir }}/letsencrypt
+    path: /opt/todo-app/letsencrypt
     state: directory
     owner: "{{ ansible_user | default('ubuntu') }}"
     group: "{{ ansible_user | default('ubuntu') }}"
@@ -49,7 +49,7 @@
 
 - name: Ensure acme.json exists with 0600 permissions
   ansible.builtin.file:
-    path: {{ app_dir }}/letsencrypt/acme.json
+    path: /opt/todo-app/letsencrypt/acme.json
     state: touch
     owner: "{{ ansible_user | default('ubuntu') }}"
     group: "{{ ansible_user | default('ubuntu') }}"
