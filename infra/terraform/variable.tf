@@ -3,7 +3,7 @@ variable "aws_region" {
 }
 
 
-variable "ec2_key" {
+variable "ec2_key_path" {
   type = string
 }
 

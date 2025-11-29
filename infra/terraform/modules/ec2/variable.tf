@@ -24,7 +24,7 @@ variable "ami" {
     type = string  
 }
 
-variable "ec2_key" {
+variable "ec2_key_path" {
     type = string  
 }
 

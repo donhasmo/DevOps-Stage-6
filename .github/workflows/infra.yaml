@@ -26,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       has_drift: ${{ steps.drift_check.outputs.has_drift }}
-      plan_output: ${{ steps.plan.outputs.stdout }}
     
     steps:
       - name: Checkout code
@@ -44,24 +43,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-
-      - name: Create terraform.tfvars
-        working-directory: ./infra/terraform
-        run: |
-          cat > terraform.tfvars <<EOF
-          aws_region = "${{ secrets.AWS_REGION }}"
-          environment = "production"
-          project_name = "hng13-stage6"
-          instance_type = "c7i-flex.large"
-          key_name = "hng13-stage6-deploy-key"
-          ssh_public_key = "${{ secrets.SSH_PUBLIC_KEY }}"
-          allowed_ssh_cidr = ["0.0.0.0/0"]
-          domain_name = "${{ secrets.DOMAIN_NAME }}"
-          acme_email = "${{ secrets.ACME_EMAIL }}"
-          git_repo_url = "${{ secrets.GIT_REPO_URL }}"
-          git_branch = "main"
-          jwt_secret = "${{ secrets.JWT_SECRET }}"
-          EOF
 
       - name: Terraform Init
         working-directory: ./infra/terraform
@@ -83,21 +64,13 @@ jobs:
         id: drift_check
         working-directory: ./infra/terraform
         run: |
-          # Check if plan shows any changes
           if grep -q "No changes" plan_output.txt; then
             echo "has_drift=false" >> $GITHUB_OUTPUT
-            echo "  No drift detected"
+            echo "No drift detected ✅"
           else
             echo "has_drift=true" >> $GITHUB_OUTPUT
             echo "⚠️ DRIFT DETECTED"
           fi
-
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ./infra/terraform/tfplan
-          retention-days: 5
 
       - name: Upload Plan Output
         uses: actions/upload-artifact@v4
@@ -133,43 +106,13 @@ jobs:
           from: ${{ secrets.SMTP_FROM_EMAIL }}
           body: |
             Infrastructure Drift Detected!
-            
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Triggered by: ${{ github.actor }}
             
-            Changes have been detected in your Terraform infrastructure.
-            Please review the plan output and approve the deployment if the changes are expected.
-            
-            Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            ---
-            This is an automated notification from the CI/CD pipeline.
+            Review the attached Terraform plan output and approve if changes are expected.
           attachments: plan_output.txt
-          html_body: |
-            <h2>Infrastructure Drift Detected</h2>
-            <p>Changes have been detected in your Terraform infrastructure that require your attention.</p>
-            
-            <h3>Details:</h3>
-            <ul>
-              <li><strong>Repository:</strong> ${{ github.repository }}</li>
-              <li><strong>Branch:</strong> ${{ github.ref_name }}</li>
-              <li><strong>Commit:</strong> ${{ github.sha }}</li>
-              <li><strong>Triggered by:</strong> ${{ github.actor }}</li>
-            </ul>
-            
-            <h3>What's next:</h3>
-            <ol>
-              <li>Review the attached Terraform plan output</li>
-              <li>Verify the changes are expected</li>
-              <li>Approve the deployment in the GitHub Actions workflow</li>
-            </ol>
-            
-            <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a></p>
-            
-            <hr>
-            <p><small>This is an automated notification from the CI/CD pipeline.</small></p>
 
   wait-for-approval:
     name: Wait for Manual Approval
@@ -182,11 +125,10 @@ jobs:
     steps:
       - name: Manual Approval Required
         run: |
-          echo "Waiting for manual approval before applying infrastructure changes..."
-          echo "Drift detected - please review and approve to proceed."
+          echo "⚠️ Drift detected - waiting for manual approval to apply changes."
 
   terraform-apply:
-    name: Terraform Apply
+    name: Terraform Apply (with Ansible Deployment)
     runs-on: ubuntu-latest
     needs: [terraform-plan, wait-for-approval]
     if: |
@@ -211,83 +153,25 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      - name: Create terraform.tfvars
-        working-directory: ./infra/terraform
-        run: |
-          cat > terraform.tfvars <<EOF
-          aws_region = "${{ secrets.AWS_REGION }}"
-          environment = "production"
-          project_name = "hng13-stage6"
-          instance_type = "c7i-flex.large"
-          key_name = "hng13-stage6-deploy-key"
-          ssh_public_key = "${{ secrets.SSH_PUBLIC_KEY }}"
-          allowed_ssh_cidr = ["0.0.0.0/0"]
-          domain_name = "${{ secrets.DOMAIN_NAME }}"
-          acme_email = "${{ secrets.ACME_EMAIL }}"
-          git_repo_url = "${{ secrets.GIT_REPO_URL }}"
-          git_branch = "main"
-          jwt_secret = "${{ secrets.JWT_SECRET }}"
-          EOF
-
-      - name: Terraform Init
-        working-directory: ./infra/terraform
-        run: terraform init
-
-      - name: Download Terraform Plan
-        if: needs.terraform-plan.outputs.has_drift == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan
-          path: ./infra/terraform
-
-      - name: Terraform Apply
+      - name: Terraform Apply (runs Ansible automatically)
         working-directory: ./infra/terraform
         run: |
           if [ "${{ needs.terraform-plan.outputs.has_drift }}" == "true" ]; then
             echo "Applying changes from plan..."
             terraform apply -auto-approve tfplan
           else
-            echo "No changes detected, running apply to verify..."
+            echo "No drift detected - running apply to verify idempotency..."
             terraform apply -auto-approve
           fi
 
-      - name: Terraform Output
-        id: terraform_output
-        working-directory: ./infra/terraform
-        run: |
-          terraform output -json > outputs.json
-          cat outputs.json
-          echo "instance_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_OUTPUT
-
-      - name: Setup SSH Key
+      - name: Setup SSH Key for Ansible (optional verification)
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ steps.terraform_output.outputs.instance_ip }} >> ~/.ssh/known_hosts
-
-      - name: Install Ansible
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ansible
-
-      - name: Wait for instance to be ready
-        run: |
-          echo "Waiting for instance to be fully ready..."
-          sleep 60
-
-      - name: Run Ansible Deployment
-        working-directory: ./infra/ansible
-        run: |
-          ansible-playbook -i inventory.ini playbook.yml -v
-
-      - name: Verify Deployment
-        run: |
-          echo "Waiting for services to start..."
-          sleep 30
-          echo "Testing application endpoints..."
-          curl -k https://${{ secrets.DOMAIN_NAME }} || echo "Frontend not ready yet"
-          curl -k https://${{ secrets.DOMAIN_NAME }}/api/auth || echo "Auth API not ready yet"
+          SSH_TARGET=$(terraform -chdir=./infra/terraform output -raw public_ip)
+          ssh-keyscan -H $SSH_TARGET >> ~/.ssh/known_hosts
+          echo "SSH ready for Ansible to run via null_resource."
 
   send-completion-notification:
     name: Send Deployment Completion Email
@@ -303,41 +187,14 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Infrastructure Deployment Completed Successfully"
+          subject: "✅ Infrastructure Deployment Completed Successfully"
           to: ${{ secrets.NOTIFICATION_EMAIL }}
           from: ${{ secrets.SMTP_FROM_EMAIL }}
           body: |
             Infrastructure Deployment Completed!
-            
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Deployed by: ${{ github.actor }}
             
-            Your infrastructure has been successfully deployed.
-            
             Application URL: https://${{ secrets.DOMAIN_NAME }}
-            Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            ---
-            This is an automated notification from the CI/CD pipeline.
-          html_body: |
-            <h2>Infrastructure Deployment Completed</h2>
-            <p>Your infrastructure has been successfully deployed!</p>
-            
-            <h3>Details:</h3>
-            <ul>
-              <li><strong>Repository:</strong> ${{ github.repository }}</li>
-              <li><strong>Branch:</strong> ${{ github.ref_name }}</li>
-              <li><strong>Commit:</strong> ${{ github.sha }}</li>
-              <li><strong>Deployed by:</strong> ${{ github.actor }}</li>
-            </ul>
-            
-            <h3>Links:</h3>
-            <ul>
-              <li><a href="https://${{ secrets.DOMAIN_NAME }}">Application URL</a></li>
-              <li><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Workflow Run</a></li>
-            </ul>
-            
-            <hr>
-            <p><small>This is an automated notification from the CI/CD pipeline.</small></p>
