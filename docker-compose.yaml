@@ -22,7 +22,7 @@ services:
       - "8088:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/letsencrypt:/letsencrypt
+      - ./letsencrypt:/letsencrypt
     restart: unless-stopped
     labels:
       - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
@@ -39,11 +39,11 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`hasmo.duckdns`)"
       - "traefik.http.routers.frontend.tls=true"
-      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls.certresolver=myresolver"
     env_file:
-      - .env
+      - .env   
     depends_on:
       - auth-api
       - todos-api
@@ -54,8 +54,6 @@ services:
 
   auth-api:
     build: ./auth-api
-    ports:
-      - "8081:8081"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.auth-api.rule=Host(`hasmo.duckdns.org`) && PathPrefix(`/api/auth`)"
@@ -65,8 +63,10 @@ services:
       - "traefik.http.services.auth-api.loadbalancer.server.port=8081"
       - "traefik.http.middlewares.auth-api-strip.stripprefix.prefixes=/api/auth"
       - "traefik.http.routers.auth-api.middlewares=auth-api-strip"
-    env_file:
-      - .env
+    environment:
+      - AUTH_API_PORT=8081
+      - USERS_API_ADDRESS=http://users-api:8083
+      - JWT_SECRET=myfancysecret
     depends_on:
       - users-api
     networks:
@@ -74,8 +74,6 @@ services:
 
   todos-api:
     build: ./todos-api
-    ports:
-      - "8082:8082"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.todos-api.rule=Host(`hasmo.duckdns.org`) && PathPrefix(`/api/todos`)"
@@ -85,8 +83,12 @@ services:
       - "traefik.http.services.todos-api.loadbalancer.server.port=8082"
       - "traefik.http.middlewares.todos-api-strip.stripprefix.prefixes=/api/todos"
       - "traefik.http.routers.todos-api.middlewares=todos-api-strip"
-    env_file:
-      - .env
+    environment:
+      - JWT_SECRET=myfancysecret
+      - REDIS_HOST=redis-queue
+      - REDIS_PORT=6379
+      - REDIS_CHANNEL=log_channel
+      - TODOS_API_PORT=8082
     depends_on:
       - redis-queue
     networks:
@@ -94,8 +96,6 @@ services:
 
   users-api:
     build: ./users-api
-    ports:
-      - "8083:8083"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users-api.rule=Host(`todoapp-devops.duckdns.org`) && PathPrefix(`/api/users`)"
@@ -105,15 +105,18 @@ services:
       - "traefik.http.services.users-api.loadbalancer.server.port=8083"
       - "traefik.http.middlewares.users-api-strip.stripprefix.prefixes=/api/users"
       - "traefik.http.routers.users-api.middlewares=users-api-strip"
-    env_file:
-      - .env
+    environment:
+      - JWT_SECRET=myfancysecret
+      - SERVER_PORT=8083
     networks:
       - backend
 
   log-message-processor:
     build: ./log-message-processor
-    env_file:
-      - .env
+    environment:
+      - REDIS_HOST=redis-queue
+      - REDIS_PORT=6379
+      - REDIS_CHANNEL=log_channel
     depends_on:
       redis-queue:
         condition: service_healthy
@@ -124,8 +127,6 @@ services:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
-    expose:
-      - "6379"
     networks:
       - backend
     healthcheck:  # Add health check

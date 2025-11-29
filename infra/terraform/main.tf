@@ -49,11 +49,13 @@ resource "local_file" "ansible_inventory" {
 
 # Write group_vars (json) that Ansible can use
 resource "local_file" "ansible_group_vars" {
-  filename = "${path.module}/../ansible/group_vars/web.json"
+  filename = "${path.module}/../ansible/group_vars/all.json"
   content  = jsonencode({
     public_ip = module.ec2.public_ip
     # instance_id = module.ec2.instance_id
     domain = var.domain
+    app_dir = "/opt/todo-app"
+    repo_url = "https://github.com/donhasmo/DevOps-Stage-6.git"
   })
 }
 

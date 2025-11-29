@@ -1,7 +1,18 @@
-FROM node:16-alpine
+FROM node:8 as deps
+
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm install --legacy-peer-deps
+
+COPY package*.json ./
+
+RUN npm install
+
+FROM node:8-slim as prod
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-EXPOSE 3000
+
+EXPOSE 8082
+
 CMD ["npm", "start"]
