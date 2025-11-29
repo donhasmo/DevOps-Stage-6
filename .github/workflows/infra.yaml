@@ -7,7 +7,7 @@ on:
     paths:
       - 'infra/terraform/**'
       - 'infra/ansible/**'
-      - '.github/workflows/infra.yml'
+      - '.github/workflows/infra.yaml'
   pull_request:
     branches:
       - main
