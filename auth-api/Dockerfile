@@ -1,14 +1,16 @@
-FROM golang:1.21-alpine AS build
-
+# Build stage
+FROM golang:1.21-alpine AS builder
 WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o auth-api .
+COPY go.mod .
+COPY main.go .
+COPY tracing.go .
+COPY user.go .
+RUN go mod tidy
+RUN go build -o auth-api .
 
+# Run stage
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=build /app/auth-api .
-EXPOSE 8081
+WORKDIR /app
+COPY --from=builder /app/auth-api .
+EXPOSE 8080
 CMD ["./auth-api"]

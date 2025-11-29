@@ -1,14 +1,5 @@
-FROM maven:3.6.3-jdk-8 AS builder
+FROM eclipse-temurin:8-jre-alpine
 WORKDIR /app
-
-COPY pom.xml .
-COPY src ./src
-
-RUN mvn package -DskipTests 
-
-FROM amazoncorretto:8
-WORKDIR /app
-
-COPY --from=builder /app/target/*.jar ./users-api.jar
-EXPOSE 8083
-CMD ["java", "-jar", "users-api.jar"]
+COPY target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]

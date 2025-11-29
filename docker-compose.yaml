@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   traefik:
-    image: traefik:v2.10
+    image: traefik:3.6.2
     command:
       - "--api.insecure=false"
       - "--providers.docker=true"
@@ -22,7 +22,7 @@ services:
       - "8088:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./letsencrypt:/letsencrypt
+      - ./traefik/letsencrypt:/letsencrypt
     restart: unless-stopped
     labels:
       - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
@@ -115,7 +115,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - redis-queue
+      redis-queue:
+        condition: service_healthy
     networks:
       - backend
 
@@ -127,6 +128,11 @@ services:
       - "6379"
     networks:
       - backend
+    healthcheck:  # Add health check
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   redis_data:
