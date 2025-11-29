@@ -35,3 +35,7 @@ variable "ssh_private_key_path" {
   default = "~/.ssh/id_ed25519"
   type = string
 }
+
+variable "projectname" {
+  type = string
+}
