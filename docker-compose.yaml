@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   traefik:
-    image: traefik:latest
+    image: traefik:v2.10
     command:
       - "--api.insecure=false"
       - "--providers.docker=true"
@@ -22,7 +22,7 @@ services:
       - "8088:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - traefik_acme:/letsencrypt
+      - ./letsencrypt:/letsencrypt
     restart: unless-stopped
     labels:
       - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
@@ -31,7 +31,7 @@ services:
       - "traefik.http.middlewares.cors.headers.accesscontrolmaxage=100"
       - "traefik.http.middlewares.cors.headers.addvaryheader=true"
     networks:
-      - web
+      - backend
 
   frontend:
     build: ./frontend
@@ -50,7 +50,6 @@ services:
     ports:
       - "8080:8080"
     networks:
-      - web
       - backend
 
   auth-api:
@@ -71,7 +70,6 @@ services:
     depends_on:
       - users-api
     networks:
-      - web
       - backend
 
   todos-api:
@@ -92,7 +90,6 @@ services:
     depends_on:
       - redis-queue
     networks:
-      - web
       - backend
 
   users-api:
@@ -111,7 +108,6 @@ services:
     env_file:
       - .env
     networks:
-      - web
       - backend
 
   log-message-processor:
@@ -133,9 +129,8 @@ services:
       - backend
 
 volumes:
-  traefik_acme:
   redis_data:
 
 networks:
-  web:
   backend:
+    driver: bridge

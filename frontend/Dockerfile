@@ -1,5 +1,5 @@
 # frontend/Dockerfile
-FROM node:14-alpine AS build
+FROM node:14-alpine
 WORKDIR /app
 COPY package*.json ./
 
