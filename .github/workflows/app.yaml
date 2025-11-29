@@ -2,43 +2,113 @@ name: Application Deployment
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'frontend/**'
       - 'auth-api/**'
       - 'todos-api/**'
       - 'users-api/**'
       - 'log-message-processor/**'
-      - 'docker-compose.yaml'
-    branches: [main]
+      - 'docker-compose.yml'
+      - '.github/workflows/app-deploy.yml'
   workflow_dispatch:
 
 jobs:
   deploy:
+    name: Deploy Application via Ansible
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup SSH Key
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: infra/terraform
+        run: terraform init
+
+      - name: Get Server IP from Terraform
+        id: terraform
+        working-directory: infra/terraform
+        run: |
+          SERVER_IP=$(terraform output -raw instance_public_ip)
+          echo "server_ip=$SERVER_IP" >> $GITHUB_OUTPUT
+          echo "Server IP: $SERVER_IP"
+
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
-          
-      - name: Deploy Application
+          ssh-keyscan -H ${{ steps.terraform.outputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Install Ansible
         run: |
-          ssh -i ~/.ssh/id_ed25519 ubuntu@${{ secrets.SERVER_IP }} << 'EOF'
-            cd /opt/todo-app
-            git pull origin main
-            
-            # Build Java app if changed
-            if git diff --name-only HEAD~1 HEAD | grep -q "users-api/"; then
-              cd users-api
-              ./mvnw clean package -DskipTests
-              cd ..
-            fi
-            
-            # Restart containers
-            docker-compose down
-            docker-compose up -d --build
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
+      - name: Create Ansible inventory
+        run: |
+          mkdir -p infra/ansible/inventory
+          cat > infra/ansible/inventory/hosts.yml <<EOF
+          all:
+            hosts:
+              app_server:
+                ansible_host: ${{ steps.terraform.outputs.server_ip }}
+                ansible_user: ubuntu
+                ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+                ansible_python_interpreter: /usr/bin/python3
+                deploy_user: deploy
+                domain_name: ${{ secrets.DOMAIN_NAME || 'destinyobs.mooo.com' }}
+                app_repo: https://github.com/${{ github.repository }}.git
+                app_directory: /opt/todo-app
+            vars:
+              ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
           EOF
+
+      - name: Run Ansible Deployment
+        working-directory: infra/ansible
+        run: |
+          ansible-playbook -i inventory/hosts.yml playbook.yml
+
+      - name: Verify Deployment
+        run: |
+          sleep 30
+          curl -f https://${{ secrets.DOMAIN_NAME || 'hasmo.duckdns.org' }} || exit 1
+
+      - name: Send Deployment Notification
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Application Deployment ${{ job.status }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: DevOps Stage 6 CI/CD
+          body: |
+            Application deployment ${{ job.status }}!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
+            
+            Server IP: ${{ steps.terraform.outputs.server_ip }}
+            Application URL: https://${{ secrets.DOMAIN_NAME || 'hasmo.duckdns.org' }}
+            
+            ${{ job.status == 'success' && 'All services are running successfully.' || 'Deployment failed. Please check the logs.' }}

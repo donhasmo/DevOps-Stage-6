@@ -17,7 +17,7 @@
 
 2. **Generate SSH Key Pair:**
    ```bash
-   ssh-keygen -t rsa -b 4096 -f ~/.ssh/hng-stage6
+   ssh-keygen -t ed25519 -b 4096 -f ~/.ssh/
    ```
 
 ## Step 2: Configure Terraform
