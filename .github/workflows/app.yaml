@@ -1,90 +1,105 @@
-name: App Deployment
+name: Ansible Deploy (triggered by infra)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'frontend/**'
-      - 'auth-api/**'
-      - 'todos-api/**'
-      - 'users-api/**'
-      - 'log-message-processor/**'
-      - 'docker-compose.yaml'
-      - '.env'
-      - '.github/workflows/app.yaml'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'infra/terraform/**'
-      - 'infra/ansible/**'
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["Infrastructure Deployment"]
+    types: [completed]
+
+permissions:
+  contents: read
+  id-token: write
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  PYTHON_VERSION: "3.11"
+  TF_VERSION: '1.6.0'
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  ansible-deploy:
-    name: Deploy Application with Ansible
+  deploy:
+    # only run when infra workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout repository
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Download Terraform-generated Ansible files
-      - name: Download Terraform Ansible Artifacts
-        uses: actions/download-artifact@v4
+      - name: Configure AWS credentials (for remote backend / provider access)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID && secrets.AWS_SECRET_ACCESS_KEY }}
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: ansible-files  # This should match the artifact name uploaded in Terraform
-          path: ./ansible
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      # Setup Python environment
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init (use same backend as infra)
+        working-directory: ./infra/terraform
+        run: |
+          terraform init -input=false
+
+      - name: Export Ansible files from terraform outputs
+        working-directory: ./infra/terraform
+        run: |
+          # ensure ansible folder exists in checked-out repo workspace
+          mkdir -p ../../ansible/group_vars
+
+          # extract outputs (must match exact output names in Terraform)
+          terraform output -raw ansible_inventory  > ../../ansible/inventory.ini
+          terraform output -raw ansible_group_vars > ../../ansible/group_vars/all.json
+
+          echo "Inventory and group_vars written to ./ansible"
+          ls -la ../../ansible || true
+
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      # Install Ansible
       - name: Install Ansible
         run: |
           python -m pip install --upgrade pip
           pip install ansible
 
-      # Optional: Install any additional Ansible collections or requirements
-      - name: Install Ansible Collections (if required)
-        working-directory: ./ansible
+      - name: Ensure SSH private key is present
         run: |
-          ansible-galaxy collection install -r requirements.yml || echo "No requirements file found"
-
-      # Run Ansible Playbook
-      - name: Run Ansible Playbook
-        working-directory: ./ansible
-        run: |
-          # Ensure private key permissions
           mkdir -p ~/.ssh
           printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          
-          # Run playbook
-          ansible-playbook -i inventory.ini site.yml --private-key ~/.ssh/id_ed25519
 
-      # Optional: Notify on completion
-      - name: Send Deployment Completion Email
+      - name: convert group_vars JSON -> YAML
+        run: |
+          if [ -f ./ansible/group_vars/all.json ]; then
+            python - <<'PY'
+            import json, pathlib, yaml
+            p = pathlib.Path('ansible/group_vars/all.json')
+            obj = json.loads(p.read_text())
+            out = pathlib.Path('ansible/group_vars/all.yml')
+            out.write_text(yaml.safe_dump(obj, sort_keys=False))
+            print('wrote', out)
+            PY
+          fi
+
+      - name: Run Ansible Playbook
+        working-directory: ./ansible
+        run: |
+          export ANSIBLE_HOST_KEY_CHECKING=False
+          chmod 600 ~/.ssh/id_ed25519
+          ansible-playbook -i inventory.ini site.yml --private-key ~/.ssh/id_ed25519 -vv
+
+      - name: Send deployment completion email (optional)
+        if: ${{ secrets.SMTP_SERVER && secrets.SMTP_USERNAME }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Ansible Deployment Completed"
+          subject: "Ansible deployment completed"
           to: ${{ secrets.NOTIFICATION_EMAIL }}
           from: ${{ secrets.SMTP_FROM_EMAIL }}
           body: |
-            TO-DO APP deployment succeeded.
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Ansible deployment completed for infra workflow run: ${{ github.event.workflow_run.id }}

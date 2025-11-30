@@ -38,19 +38,25 @@ module "net" {
 
 
 
-# Output for Ansible inventory (inline)
 output "ansible_inventory" {
-  value = "[app]\n${module.ec2.public_ip} ansible_user=ubuntu ansible_ssh_private_key_file=${var.ssh_private_key_path}\n"
+  description = "Ansible inventory (hosts) for the application"
+  value = templatefile("${path.module}/templates/ansible_inventory.tmpl", {
+    host_ip = module.ec2.public_ip
+    user    = "ubuntu"
+    ssh_key = var.ssh_private_key_path
+  })
+  sensitive = false
 }
 
-# Output for Ansible group_vars
 output "ansible_group_vars" {
+  description = "JSON-encoded group_vars for Ansible"
   value = jsonencode({
     public_ip = module.ec2.public_ip
     domain    = var.domain
     app_dir   = "/opt/todo-app"
     repo_url  = "https://github.com/donhasmo/DevOps-Stage-6.git"
   })
+  sensitive = false
 }
 
 
