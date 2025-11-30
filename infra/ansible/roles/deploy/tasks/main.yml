@@ -8,7 +8,7 @@
 # --- Ensure app directory exists ---
 - name: Ensure app directory exists
   ansible.builtin.file:
-    path: {{ app_dir }}
+    path: "{{ app_dir }}"
     state: directory
     owner: "{{ ansible_user | default('ubuntu') }}"
     group: "{{ ansible_user | default('ubuntu') }}"
