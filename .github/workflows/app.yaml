@@ -1,4 +1,4 @@
-name: Application Deployment
+name: App Deployment
 
 on:
   push:
@@ -10,9 +10,15 @@ on:
       - 'todos-api/**'
       - 'users-api/**'
       - 'log-message-processor/**'
-      - 'docker-compose.yml'
+      - 'docker-compose.yaml'
       - '.env'
-      - '.github/workflows/application.yml'
+      - '.github/workflows/app.yaml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/**'
+      - 'infra/ansible/**'
   workflow_dispatch:
 
 env:
