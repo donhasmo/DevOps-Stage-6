@@ -27,10 +27,6 @@ variable "ami" {
 variable "ec2_key_path" {
     type = string 
     
-    validation {
-    condition = can(regex("^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)", trimspace(replace(replace(var.ec2_key_path, "\r", ""), "\n", " "))))
-    error_message = "ec2_key_path must be an OpenSSH public key string (starts with ssh-ed25519, ssh-rsa, ecdsa-sha2-, etc.) after trimming whitespace/newlines."
-  }
 }
 
 # variable "public_ip" {
