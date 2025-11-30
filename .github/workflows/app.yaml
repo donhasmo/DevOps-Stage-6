@@ -121,7 +121,7 @@ jobs:
           fi
           echo "Found playbook: $PLAYBOOK"
 
-          # --- 6️⃣ Run Ansible ---
+          # -Run Ansible ---
           ansible-playbook -i infra/ansible/inventory.ini "$PLAYBOOK" --private-key ~/.ssh/id_rsa -vv
 
       - name: Send deployment completion email (optional)

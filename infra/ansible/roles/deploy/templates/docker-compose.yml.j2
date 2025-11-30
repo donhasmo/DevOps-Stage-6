@@ -34,7 +34,7 @@ services:
     build: ./frontend
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`hasmo.duckdns`)"
+      - "traefik.http.routers.frontend.rule=Host(`hasmo.duckdns.org`)"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.services.frontend.loadbalancer.server.port=80"
       - "traefik.http.routers.frontend.entrypoints=websecure"
@@ -97,7 +97,7 @@ services:
     build: ./users-api
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.users-api.rule=Host(`todoapp-devops.duckdns.org`) && PathPrefix(`/api/users`)"
+      - "traefik.http.routers.users-api.rule=Host(`hasmo.duckdns.org`) && PathPrefix(`/api/users`)"
       - "traefik.http.routers.users-api.entrypoints=websecure"
       - "traefik.http.routers.users-api.tls=true"
       - "traefik.http.routers.users-api.tls.certresolver=myresolver"
