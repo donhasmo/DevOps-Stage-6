@@ -4,7 +4,6 @@ on:
   workflow_run:
     workflows: ["Infrastructure Deployment"]
     types: [completed]
-  workflow_dispatch: 
 
 permissions:
   contents: read
@@ -20,7 +19,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
-    # bring secrets into env so they can be referenced in `if:` expressions
+    # bring secrets into env so they can be referenced in steps
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -37,8 +36,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (for remote backend / provider access)
-        # only run if both AWS credentials are set in env (safe check)
+      - name: Configure AWS credentials (for remote backend)
         if: ${{ env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -56,47 +54,94 @@ jobs:
         run: |
           terraform init -input=false
 
-      - name: Export Ansible files from terraform outputs
+      - name: Export Ansible files from terraform outputs (write into infra/ansible)
         working-directory: ./infra/terraform
         run: |
-          # ensure ansible folder exists in checked-out repo workspace
-          mkdir -p ../../ansible/group_vars
+          # ensure infra/ansible exists and group_vars folder exists
+          mkdir -p ../ansible/group_vars
 
           # extract outputs (must match exact output names in Terraform)
-          terraform output -raw ansible_inventory  > ../../ansible/inventory.ini
-          terraform output -raw ansible_group_vars > ../../ansible/group_vars/all.json
+          terraform output -raw ansible_inventory  > ../ansible/inventory.ini
+          terraform output -raw ansible_group_vars > ../ansible/group_vars/all.json
 
-          echo "Inventory and group_vars written to ./ansible"
-          ls -la ../../ansible || true
+          echo "Wrote inventory and group_vars to infra/ansible:"
+          ls -la ../ansible || true
+          ls -la ../ansible/group_vars || true
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Ansible & dependencies
+      - name: Install Ansible & dependencies (including pyyaml)
         run: |
           python -m pip install --upgrade pip
           pip install ansible pyyaml
 
-
-      - name: Ensure SSH private key is present
+      - name: Ensure SSH private key is present for Ansible
         run: |
           mkdir -p ~/.ssh
           printf '%s' "${{ env.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          # show limited info so we know file exists (no private content)
+          ls -l ~/.ssh/id_ed25519 || true
 
-      - name: (Optional) convert group_vars JSON -> YAML (compact)
+
+      - name: (Optional) convert group_vars JSON -> YAML
+        working-directory: ./infra/ansible
         run: |
-          if [ -f ./ansible/group_vars/all.json ]; then python -c "import json, pathlib, yaml; p=pathlib.Path('ansible/group_vars/all.json'); pathlib.Path('ansible/group_vars/all.yml').write_text(yaml.safe_dump(json.loads(p.read_text()), sort_keys=False)); print('wrote')"; fi
+          if [ -f ./group_vars/all.json ]; then
+            python - <<'PY'
+            import json, pathlib, yaml
+            p = pathlib.Path('group_vars/all.json')
+            obj = json.loads(p.read_text())
+            out = pathlib.Path('group_vars/all.yml')
+            out.write_text(yaml.safe_dump(obj, sort_keys=False))
+            print('wrote', out)
+            PY
+          fi
 
+      - name: Find playbook path (debug + robust selection)
+        id: find_playbook
+        run: |
+          set -euo pipefail
+          candidates=(
+            "infra/ansible/site.yml"
+            "infra/ansible/site.yaml"
+            "infra/ansible/playbook.yml"
+            "infra/ansible/playbook.yaml"
+            "infra/ansible/deploy.yml"
+            "infra/ansible/deploy.yaml"
+            "site.yml"
+            "site.yaml"
+            "playbook.yml"
+            "playbook.yaml"
+          )
+          PLAYBOOK=""
+          for p in "${candidates[@]}"; do
+            if [ -f "$p" ]; then
+              PLAYBOOK="$p"
+              break
+            fi
+          done
+          if [ -z "$PLAYBOOK" ]; then
+            echo "ERROR: No playbook found in expected locations. Searched:"
+            for p in "${candidates[@]}"; do echo " - $p"; done
+            echo "Full repo file list:"
+            find . -maxdepth 3 -type f -print
+            exit 1
+          fi
+          echo "Found playbook: $PLAYBOOK"
+          echo "playbook=$PLAYBOOK" >> $GITHUB_OUTPUT
 
       - name: Run Ansible Playbook
-        working-directory: ./ansible
+        # run from repo root so path to playbook is explicit; inventory is infra/ansible/inventory.ini
         run: |
+          set -euo pipefail
           export ANSIBLE_HOST_KEY_CHECKING=False
           chmod 600 ~/.ssh/id_ed25519
-          ansible-playbook -i inventory.ini site.yml --private-key ~/.ssh/id_ed25519 -vv
+          echo "Using playbook: ${{ steps.find_playbook.outputs.playbook }}"
+          ansible-playbook -i infra/ansible/inventory.ini "${{ steps.find_playbook.outputs.playbook }}" --private-key ~/.ssh/id_ed25519 -vv
 
       - name: Send deployment completion email (optional)
         if: ${{ env.SMTP_SERVER != '' && env.SMTP_USERNAME != '' }}
