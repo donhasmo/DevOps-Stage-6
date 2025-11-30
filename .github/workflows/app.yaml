@@ -1,9 +1,10 @@
-name: Ansible Deploy (triggered by infra)
+name: Ansible Deploy
 
 on:
   workflow_run:
     workflows: ["Infrastructure Deployment"]
     types: [completed]
+  workflow_dispatch:
 
 permissions:
   contents: read
