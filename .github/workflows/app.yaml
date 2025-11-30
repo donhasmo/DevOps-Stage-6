@@ -78,33 +78,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install ansible pyyaml
 
-      - name: Ensure SSH private key is present for Ansible
+      - name: Setup SSH key and run Ansible
         run: |
+          set -euo pipefail
+
+          # Write private key 
           mkdir -p ~/.ssh
           printf '%s' "${{ env.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # show limited info so we know file exists (no private content)
-          ls -l ~/.ssh/id_ed25519 || true
 
+          # Convert key to PEM if needed (avoids libcrypto errors) 
+          ssh-keygen -p -f ~/.ssh/id_ed25519 -m PEM -N "" || true
 
-      # - name: (Optional) convert group_vars JSON -> YAML
-      #   working-directory: ./infra/ansible
-      #   run: |
-      #     if [ -f ./group_vars/all.json ]; then
-      #       python - <<'PY'
-      #       import json, pathlib, yaml
-      #       p = pathlib.Path('group_vars/all.json')
-      #       obj = json.loads(p.read_text())
-      #       out = pathlib.Path('group_vars/all.yml')
-      #       out.write_text(yaml.safe_dump(obj, sort_keys=False))
-      #       print('wrote', out)
-      #       PY
-      #     fi
+          # Disable host key checking
+          export ANSIBLE_HOST_KEY_CHECKING=False
 
-      - name: Find playbook path (debug + robust selection)
-        id: find_playbook
-        run: |
-          set -euo pipefail
+          # Debug: ensure key exists and permissions are correct 
+          ls -l ~/.ssh/id_ed25519
+          head -n 3 ~/.ssh/id_ed25519
+
+          # Find playbook dynamically 
           candidates=(
             "infra/ansible/site.yml"
             "infra/ansible/site.yaml"
@@ -125,23 +118,14 @@ jobs:
             fi
           done
           if [ -z "$PLAYBOOK" ]; then
-            echo "ERROR: No playbook found in expected locations. Searched:"
+            echo "ERROR: No playbook found. Searched:"
             for p in "${candidates[@]}"; do echo " - $p"; done
-            echo "Full repo file list:"
-            find . -maxdepth 3 -type f -print
             exit 1
           fi
           echo "Found playbook: $PLAYBOOK"
-          echo "playbook=$PLAYBOOK" >> $GITHUB_OUTPUT
 
-      - name: Run Ansible Playbook
-        # run from repo root so path to playbook is explicit; inventory is infra/ansible/inventory.ini
-        run: |
-          set -euo pipefail
-          export ANSIBLE_HOST_KEY_CHECKING=False
-          chmod 600 ~/.ssh/id_ed25519
-          echo "Using playbook: ${{ steps.find_playbook.outputs.playbook }}"
-          ansible-playbook -i infra/ansible/inventory.ini "${{ steps.find_playbook.outputs.playbook }}" --private-key ~/.ssh/id_ed25519 -vv
+          # --- 6️⃣ Run Ansible ---
+          ansible-playbook -i infra/ansible/inventory.ini "$PLAYBOOK" --private-key ~/.ssh/id_ed25519 -vv
 
       - name: Send deployment completion email (optional)
         if: ${{ env.SMTP_SERVER != '' && env.SMTP_USERNAME != '' }}
