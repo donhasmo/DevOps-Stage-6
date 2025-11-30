@@ -24,6 +24,9 @@ jobs:
   terraform-plan:
     name: Terraform Plan & Drift Detection
     runs-on: ubuntu-latest
+    # <<<<<<<<<<<<<< Add TF_VAR_ec2_key_path at the job level so every step uses it
+    env:
+      TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
     outputs:
       has_drift: ${{ steps.drift_check.outputs.has_drift }}
 
@@ -41,21 +44,17 @@ jobs:
       - name: Validate SSH public key format (fail early if invalid)
         run: |
           set -euo pipefail
-          # Write secret to temp file (no echo of content)
           TMPDIR=$(mktemp -d)
           PUBFILE="$TMPDIR/key.pub"
           printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > "$PUBFILE"
-          # remove CRLF if present
           tr -d '\r' < "$PUBFILE" > "$PUBFILE.clean"
           mv "$PUBFILE.clean" "$PUBFILE"
-          # Check it begins with a recognized prefix
           if ! head -n1 "$PUBFILE" | grep -E -q '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)'; then
             echo "ERROR: SSH_PUBLIC_KEY secret does not start with an OpenSSH key type (e.g. 'ssh-ed25519' or 'ssh-rsa')."
             echo "Make sure you pasted the public key (contents of id_ed25519.pub), not the private key."
             rm -rf "$TMPDIR"
             exit 1
           fi
-          # Validate with ssh-keygen (prints fingerprint only)
           if ! ssh-keygen -lf "$PUBFILE" >/dev/null 2>&1; then
             echo "ERROR: ssh-keygen failed to parse the public key. Ensure it's a valid OpenSSH public key."
             rm -rf "$TMPDIR"
@@ -70,10 +69,8 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      - name: Terraform Init & Validate (with SSH public key from secret)
+      - name: Terraform Init & Validate
         working-directory: ./infra/terraform
-        env:
-          TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
           terraform init -input=false
           terraform validate
@@ -81,8 +78,6 @@ jobs:
       - name: Terraform Plan
         id: plan
         working-directory: ./infra/terraform
-        env:
-          TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
           terraform plan -no-color -out=tfplan
           terraform show -no-color tfplan > plan_output.txt
@@ -164,6 +159,9 @@ jobs:
   terraform-apply:
     name: Terraform Apply (with Ansible)
     runs-on: ubuntu-latest
+    # <<<<<<<<<<<<<< ensure TF_VAR_ec2_key_path is available in this job too
+    env:
+      TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
     needs: [terraform-plan, wait-for-approval]
     if: |
       always() &&
@@ -186,10 +184,8 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # Optionally write pub as well (not required but useful)
           printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_ed25519.pub
           chmod 644 ~/.ssh/id_ed25519.pub
-          # Install ansible so terraform local-exec can call ansible-playbook
           sudo apt-get update -y
           sudo apt-get install -y software-properties-common
           sudo add-apt-repository --yes --update ppa:ansible/ansible
@@ -209,7 +205,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      - name: Validate SSH public key format (double-check before apply)
+      - name: (Double-check) Validate SSH public key format before apply
         run: |
           set -euo pipefail
           TMPDIR=$(mktemp -d)
@@ -230,25 +226,8 @@ jobs:
           rm -rf "$TMPDIR"
           echo "SSH public key format validated."
 
-      - name: Verify SSH public key will be passed to Terraform
-        run: |
-          TMP=$(mktemp)
-          printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > "$TMP"
-          tr -d '\r' < "$TMP" > "$TMP.clean"
-          mv "$TMP.clean" "$TMP"
-          ssh-keygen -lf "$TMP" || (echo "Public key invalid" && exit 1)
-          # show the fingerprint (safe), not the key itself
-          ssh-keygen -lf "$TMP" | awk '{print "Fingerprint:", $2, "bits:", $1}'
-        env:
-          # nothing sensitive is printed; still runs with secret in file
-          # this step does not print the key itself
-          TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
-
-
       - name: Terraform Apply (use plan if available)
         working-directory: ./infra/terraform
-        env:
-          TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
           set -e
           terraform init -input=false
