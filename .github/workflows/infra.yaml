@@ -24,12 +24,10 @@ jobs:
   terraform-plan:
     name: Terraform Plan & Drift Detection
     runs-on: ubuntu-latest
-    # <<<<<<<<<<<<<< Add TF_VAR_ec2_key_path at the job level so every step uses it
     env:
       TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
     outputs:
       has_drift: ${{ steps.drift_check.outputs.has_drift }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -41,7 +39,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Validate SSH public key format (fail early if invalid)
+      - name: Validate SSH public key format
         run: |
           set -euo pipefail
           TMPDIR=$(mktemp -d)
@@ -50,18 +48,17 @@ jobs:
           tr -d '\r' < "$PUBFILE" > "$PUBFILE.clean"
           mv "$PUBFILE.clean" "$PUBFILE"
           if ! head -n1 "$PUBFILE" | grep -E -q '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)'; then
-            echo "ERROR: SSH_PUBLIC_KEY secret does not start with an OpenSSH key type (e.g. 'ssh-ed25519' or 'ssh-rsa')."
-            echo "Make sure you pasted the public key (contents of id_ed25519.pub), not the private key."
+            echo "ERROR: SSH_PUBLIC_KEY secret does not start with an OpenSSH key type."
             rm -rf "$TMPDIR"
             exit 1
           fi
           if ! ssh-keygen -lf "$PUBFILE" >/dev/null 2>&1; then
-            echo "ERROR: ssh-keygen failed to parse the public key. Ensure it's a valid OpenSSH public key."
+            echo "ERROR: ssh-keygen failed to parse the public key."
             rm -rf "$TMPDIR"
             exit 1
           fi
           rm -rf "$TMPDIR"
-          echo "SSH public key format looks valid."
+          echo "SSH public key format validated."
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -95,14 +92,14 @@ jobs:
             echo "⚠️ DRIFT DETECTED"
           fi
 
-      - name: Upload Terraform Plan (binary)
+      - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
           path: ./infra/terraform/tfplan
           retention-days: 5
 
-      - name: Upload Plan Output (human readable)
+      - name: Upload Plan Output
         uses: actions/upload-artifact@v4
         with:
           name: plan-output
@@ -115,16 +112,13 @@ jobs:
     needs: terraform-plan
     if: needs.terraform-plan.outputs.has_drift == 'true'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download Plan Output
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: plan-output
 
-      - name: Send Email Notification
-        uses: dawidd6/action-send-mail@v3
+      - uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
@@ -140,8 +134,6 @@ jobs:
             Commit: ${{ github.sha }}
             Triggered by: ${{ github.actor }}
             Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            Please review the plan output and approve the deployment if the changes are expected.
           attachments: plan_output.txt
 
   wait-for-approval:
@@ -152,33 +144,28 @@ jobs:
     environment:
       name: production
     steps:
-      - name: Manual Approval Required
-        run: |
-          echo "Drift detected - waiting for manual approval in the GitHub Actions UI."
+      - run: echo "Drift detected - waiting for manual approval in the GitHub Actions UI."
 
   terraform-apply:
     name: Terraform Apply (with Ansible)
     runs-on: ubuntu-latest
-    # <<<<<<<<<<<<<< ensure TF_VAR_ec2_key_path is available in this job too
+    needs: [terraform-plan, wait-for-approval]
     env:
       TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
-    needs: [terraform-plan, wait-for-approval]
     if: |
       always() &&
       needs.terraform-plan.result == 'success' &&
       (needs.terraform-plan.outputs.has_drift == 'false' || needs.wait-for-approval.result == 'success')
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Prepare runner for Ansible (write SSH key + install Ansible)
+      - name: Prepare SSH keys and install Ansible
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
@@ -192,54 +179,23 @@ jobs:
           sudo apt-get install -y ansible
           ansible --version
 
-      - name: Download Terraform Plan (if drift detected)
+      - uses: actions/download-artifact@v4
         if: needs.terraform-plan.outputs.has_drift == 'true'
-        uses: actions/download-artifact@v4
         with:
           name: terraform-plan
           path: ./infra/terraform
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
-
-      - name: (Double-check) Validate SSH public key format before apply
-        run: |
-          set -euo pipefail
-          TMPDIR=$(mktemp -d)
-          PUBFILE="$TMPDIR/key.pub"
-          printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > "$PUBFILE"
-          tr -d '\r' < "$PUBFILE" > "$PUBFILE.clean"
-          mv "$PUBFILE.clean" "$PUBFILE"
-          if ! head -n1 "$PUBFILE" | grep -E -q '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)'; then
-            echo "ERROR: SSH_PUBLIC_KEY secret does not start with an OpenSSH key type."
-            rm -rf "$TMPDIR"
-            exit 1
-          fi
-          if ! ssh-keygen -lf "$PUBFILE" >/dev/null 2>&1; then
-            echo "ERROR: ssh-keygen failed to parse the public key; invalid format."
-            rm -rf "$TMPDIR"
-            exit 1
-          fi
-          rm -rf "$TMPDIR"
-          echo "SSH public key format validated."
-
-      - name: Terraform Apply (use plan if available)
+      - name: Terraform Apply
         working-directory: ./infra/terraform
         run: |
-          set -e
           terraform init -input=false
           if [ "${{ needs.terraform-plan.outputs.has_drift }}" == "true" ]; then
-            echo "Applying changes from saved plan..."
             terraform apply -input=false -auto-approve tfplan
           else
-            echo "No drift: applying to verify (idempotent)..."
             terraform apply -input=false -auto-approve
           fi
 
-      - name: Capture Terraform outputs (instance IP)
+      - name: Capture Terraform outputs
         id: terraform_output
         working-directory: ./infra/terraform
         run: |
@@ -249,15 +205,13 @@ jobs:
           fi
           cat outputs.json
 
-      - name: Add instance to known_hosts (so future ssh/ansible runs are clean)
+      - name: Add instance to known_hosts
         if: steps.terraform_output.outputs.instance_ip != ''
         run: |
           ssh-keyscan -H ${{ steps.terraform_output.outputs.instance_ip }} >> ~/.ssh/known_hosts || true
-          echo "Added known_hosts entry for ${{ steps.terraform_output.outputs.instance_ip }}"
 
-      - name: (Optional) Verify Deployment endpoints
+      - name: Verify Deployment endpoints
         run: |
-          echo "Waiting a short while for services to come up..."
           sleep 25
           curl -fsS https://${{ secrets.DOMAIN_NAME }} || echo "Frontend not ready yet"
           curl -fsS https://${{ secrets.DOMAIN_NAME }}/api/auth || echo "Auth API not ready yet"
@@ -268,8 +222,7 @@ jobs:
     needs: terraform-apply
     if: always() && needs.terraform-apply.result == 'success'
     steps:
-      - name: Send Success Email
-        uses: dawidd6/action-send-mail@v3
+      - uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
