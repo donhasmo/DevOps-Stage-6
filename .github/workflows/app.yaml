@@ -87,19 +87,19 @@ jobs:
           ls -l ~/.ssh/id_ed25519 || true
 
 
-      - name: (Optional) convert group_vars JSON -> YAML
-        working-directory: ./infra/ansible
-        run: |
-          if [ -f ./group_vars/all.json ]; then
-            python - <<'PY'
-            import json, pathlib, yaml
-            p = pathlib.Path('group_vars/all.json')
-            obj = json.loads(p.read_text())
-            out = pathlib.Path('group_vars/all.yml')
-            out.write_text(yaml.safe_dump(obj, sort_keys=False))
-            print('wrote', out)
-            PY
-          fi
+      # - name: (Optional) convert group_vars JSON -> YAML
+      #   working-directory: ./infra/ansible
+      #   run: |
+      #     if [ -f ./group_vars/all.json ]; then
+      #       python - <<'PY'
+      #       import json, pathlib, yaml
+      #       p = pathlib.Path('group_vars/all.json')
+      #       obj = json.loads(p.read_text())
+      #       out = pathlib.Path('group_vars/all.yml')
+      #       out.write_text(yaml.safe_dump(obj, sort_keys=False))
+      #       print('wrote', out)
+      #       PY
+      #     fi
 
       - name: Find playbook path (debug + robust selection)
         id: find_playbook
