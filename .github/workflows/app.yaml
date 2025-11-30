@@ -1,10 +1,10 @@
-name: Ansible Deploy
+name: Ansible Deploy (triggered by infra)
 
 on:
   workflow_run:
     workflows: ["Infrastructure Deployment"]
     types: [completed]
-  workflow_dispatch:
+  workflow_dispatch: 
 
 permissions:
   contents: read
@@ -20,17 +20,31 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
+    # bring secrets into env so they can be referenced in `if:` expressions
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM_EMAIL: ${{ secrets.SMTP_FROM_EMAIL }}
+      NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials (for remote backend / provider access)
-        if: ${{ secrets.AWS_ACCESS_KEY_ID && secrets.AWS_SECRET_ACCESS_KEY }}
+        # only run if both AWS credentials are set in env (safe check)
+        if: ${{ env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
@@ -68,10 +82,10 @@ jobs:
       - name: Ensure SSH private key is present
         run: |
           mkdir -p ~/.ssh
-          printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s' "${{ env.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-      - name: convert group_vars JSON -> YAML
+      - name: (Optional) convert group_vars JSON -> YAML
         run: |
           if [ -f ./ansible/group_vars/all.json ]; then
             python - <<'PY'
@@ -82,7 +96,7 @@ jobs:
             out.write_text(yaml.safe_dump(obj, sort_keys=False))
             print('wrote', out)
             PY
-          fi
+           fi
 
       - name: Run Ansible Playbook
         working-directory: ./ansible
@@ -92,15 +106,15 @@ jobs:
           ansible-playbook -i inventory.ini site.yml --private-key ~/.ssh/id_ed25519 -vv
 
       - name: Send deployment completion email (optional)
-        if: ${{ secrets.SMTP_SERVER && secrets.SMTP_USERNAME }}
+        if: ${{ env.SMTP_SERVER != '' && env.SMTP_USERNAME != '' }}
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
+          server_address: ${{ env.SMTP_SERVER }}
+          server_port: ${{ env.SMTP_PORT }}
+          username: ${{ env.SMTP_USERNAME }}
+          password: ${{ env.SMTP_PASSWORD }}
           subject: "Ansible deployment completed"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: ${{ secrets.SMTP_FROM_EMAIL }}
+          to: ${{ env.NOTIFICATION_EMAIL }}
+          from: ${{ env.SMTP_FROM_EMAIL }}
           body: |
             Ansible deployment completed for infra workflow run: ${{ github.event.workflow_run.id }}
