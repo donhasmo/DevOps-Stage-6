@@ -6,6 +6,10 @@ resource "aws_instance" "my_ec2" {
   vpc_security_group_ids = var.pub_sg_id
   associate_public_ip_address = true
   tags                   = var.tags
+  root_block_device {
+    volume_size = 30   # increase to 30 GB (or larger)
+    volume_type = "gp3"
+  }
 }
 
 # resource "aws_key_pair" "local_key" {
