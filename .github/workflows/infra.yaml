@@ -169,6 +169,12 @@ jobs:
         working-directory: ./infra/terraform
         run: terraform init -input=false
 
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: ./infra/terraform
+
       - name: Terraform Apply (use plan if available)
         working-directory: ./infra/terraform
         run: |
