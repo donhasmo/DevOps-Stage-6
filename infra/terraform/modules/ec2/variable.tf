@@ -24,10 +24,9 @@ variable "ami" {
     type = string  
 }
 
-variable "ec2_key_path" {
-    type = string 
-    
-}
+# variable "ec2_key_path" {
+#     type = string    
+# }
 
 # variable "public_ip" {
 #     type = string  
@@ -38,5 +37,9 @@ variable "ssh_private_key_path" {
 }
 
 variable "projectname" {
+  type = string
+}
+
+variable "key_name" {
   type = string
 }

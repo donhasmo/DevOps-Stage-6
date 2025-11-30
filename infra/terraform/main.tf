@@ -22,7 +22,7 @@ module "ec2" {
   aws_region      = var.aws_region
   pub_sg_id = [module.net.pub_sg_id]
   ami = var.ami
-  ec2_key_path = var.ec2_key_path
+  key_name = var.key_name
   projectname = var.projectname
   epicbook_pubsub_id = module.net.epicbook_pubsub_id
   tags      = local.tags

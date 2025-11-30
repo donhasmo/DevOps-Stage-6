@@ -25,3 +25,7 @@ variable "domain" {
   type = string
   description = "domain for ansible host"
 }
+
+variable "key_name" {
+  type = string
+}
