@@ -84,18 +84,15 @@ jobs:
 
           # Write private key 
           mkdir -p ~/.ssh
-          printf '%s' "${{ env.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-          # Convert key to PEM if needed (avoids libcrypto errors) 
-          ssh-keygen -p -f ~/.ssh/id_ed25519 -m PEM -N "" || true
+          printf '%s' "${{ env.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
 
           # Disable host key checking
           export ANSIBLE_HOST_KEY_CHECKING=False
 
           # Debug: ensure key exists and permissions are correct 
-          ls -l ~/.ssh/id_ed25519
-          head -n 3 ~/.ssh/id_ed25519
+          ls -l ~/.ssh/id_rsa
+          head -n 3 ~/.ssh/id_rsa
 
           # Find playbook dynamically 
           candidates=(
@@ -125,7 +122,7 @@ jobs:
           echo "Found playbook: $PLAYBOOK"
 
           # --- 6️⃣ Run Ansible ---
-          ansible-playbook -i infra/ansible/inventory.ini "$PLAYBOOK" --private-key ~/.ssh/id_ed25519 -vv
+          ansible-playbook -i infra/ansible/inventory.ini "$PLAYBOOK" --private-key ~/.ssh/id_rsa -vv
 
       - name: Send deployment completion email (optional)
         if: ${{ env.SMTP_SERVER != '' && env.SMTP_USERNAME != '' }}

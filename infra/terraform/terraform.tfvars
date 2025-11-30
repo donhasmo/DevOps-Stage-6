@@ -1,6 +1,6 @@
 aws_region              = "us-east-1" 
-ec2_key_path            = "~/.ssh/id_ed25519.pub"
+ec2_key_path            = "~/.ssh/id_rsa.pub"
 projectname             = "stage-6"
 ami                     = "ami-0bbdd8c17ed981ef9" 
 domain                  = "hasmo.duckdns.org"
-ssh_private_key_path    = "~/.ssh/id_ed25519"
+ssh_private_key_path    = "~/.ssh/id_rsa"

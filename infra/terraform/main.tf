@@ -94,7 +94,7 @@ output "ansible_group_vars" {
 #   provisioner "local-exec" {
 #   command = <<EOT
 #     echo '[INFO] Waiting for SSH connection to be ready...'
-#     until ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 ubuntu@${module.ec2.public_ip} 'echo ready'; do
+#     until ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${module.ec2.public_ip} 'echo ready'; do
 #       echo '[INFO] SSH not ready yet, waiting 10s...'
 #       sleep 10
 #     done

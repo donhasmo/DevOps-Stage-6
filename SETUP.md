@@ -34,11 +34,11 @@
 2. **Create `infra/terraform/terraform.tfvars`:**
    ```hcl
     aws_region              = "us-east-1" 
-    ec2_key                 = "~/.ssh/id_ed25519.pub"  #path to your public ssh key
+    ec2_key                 = "~/.ssh/id_rsa.pub"  #path to your public ssh key
     projectname             = "epicbook"
     ami                     = "ami-0bbdd8c17ed981ef9" 
     domain                  = "hasmo.duckdns.org"
-    ssh_private_key_path    = "~/.ssh/id_ed25519"          #path to your private ssh key
+    ssh_private_key_path    = "~/.ssh/id_rsa"          #path to your private ssh key
    ```
 
 ## Step 3: GitHub Secrets Configuration
@@ -78,7 +78,7 @@ Point your domain's A record to your server's IP address (you'll get this after 
 
 1. **Check Services:**
    ```bash
-   ssh -i ~/.ssh/id_ed25519 ubuntu@your-server-ip
+   ssh -i ~/.ssh/id_rsa ubuntu@your-server-ip
    docker-compose ps
    ```
 
@@ -109,7 +109,7 @@ Take screenshots of:
 
 2. **SSH Connection Refused:**
    - Check security group allows SSH from your IP
-   - Verify SSH key permissions: `chmod 600 ~/.ssh/id_ed25519`
+   - Verify SSH key permissions: `chmod 600 ~/.ssh/id_rsa`
 
 3. **SSL Certificate Issues:**
    - Ensure domain points to server IP
