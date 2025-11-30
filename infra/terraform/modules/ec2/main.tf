@@ -10,7 +10,8 @@ resource "aws_instance" "my_ec2" {
 
 resource "aws_key_pair" "local_key" {
   key_name   = var.projectname
-  public_key = var.ec2_key_path
+  public_key = trimspace(replace(var.ec2_key_path, "\r", ""))
 }
+
 
 

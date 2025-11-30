@@ -230,6 +230,21 @@ jobs:
           rm -rf "$TMPDIR"
           echo "SSH public key format validated."
 
+      - name: Verify SSH public key will be passed to Terraform
+        run: |
+          TMP=$(mktemp)
+          printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > "$TMP"
+          tr -d '\r' < "$TMP" > "$TMP.clean"
+          mv "$TMP.clean" "$TMP"
+          ssh-keygen -lf "$TMP" || (echo "Public key invalid" && exit 1)
+          # show the fingerprint (safe), not the key itself
+          ssh-keygen -lf "$TMP" | awk '{print "Fingerprint:", $2, "bits:", $1}'
+        env:
+          # nothing sensitive is printed; still runs with secret in file
+          # this step does not print the key itself
+          TF_VAR_ec2_key_path: ${{ secrets.SSH_PUBLIC_KEY }}
+
+
       - name: Terraform Apply (use plan if available)
         working-directory: ./infra/terraform
         env:
