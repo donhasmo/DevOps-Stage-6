@@ -38,6 +38,32 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Validate SSH public key format (fail early if invalid)
+        run: |
+          set -euo pipefail
+          # Write secret to temp file (no echo of content)
+          TMPDIR=$(mktemp -d)
+          PUBFILE="$TMPDIR/key.pub"
+          printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > "$PUBFILE"
+          # remove CRLF if present
+          tr -d '\r' < "$PUBFILE" > "$PUBFILE.clean"
+          mv "$PUBFILE.clean" "$PUBFILE"
+          # Check it begins with a recognized prefix
+          if ! head -n1 "$PUBFILE" | grep -E -q '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)'; then
+            echo "ERROR: SSH_PUBLIC_KEY secret does not start with an OpenSSH key type (e.g. 'ssh-ed25519' or 'ssh-rsa')."
+            echo "Make sure you pasted the public key (contents of id_ed25519.pub), not the private key."
+            rm -rf "$TMPDIR"
+            exit 1
+          fi
+          # Validate with ssh-keygen (prints fingerprint only)
+          if ! ssh-keygen -lf "$PUBFILE" >/dev/null 2>&1; then
+            echo "ERROR: ssh-keygen failed to parse the public key. Ensure it's a valid OpenSSH public key."
+            rm -rf "$TMPDIR"
+            exit 1
+          fi
+          rm -rf "$TMPDIR"
+          echo "SSH public key format looks valid."
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -120,7 +146,7 @@ jobs:
             Triggered by: ${{ github.actor }}
             Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
-            Please review the attached plan output and approve the deployment if the changes are expected.
+            Please review the plan output and approve the deployment if the changes are expected.
           attachments: plan_output.txt
 
   wait-for-approval:
@@ -156,12 +182,12 @@ jobs:
 
       - name: Prepare runner for Ansible (write SSH key + install Ansible)
         run: |
-          set -e
+          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # Optionally write pub as well (not required)
-          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_ed25519.pub
+          # Optionally write pub as well (not required but useful)
+          printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_ed25519.pub
           chmod 644 ~/.ssh/id_ed25519.pub
           # Install ansible so terraform local-exec can call ansible-playbook
           sudo apt-get update -y
@@ -170,7 +196,7 @@ jobs:
           sudo apt-get install -y ansible
           ansible --version
 
-      - name: Download Terraform Plan (if drift detected) so apply can use it
+      - name: Download Terraform Plan (if drift detected)
         if: needs.terraform-plan.outputs.has_drift == 'true'
         uses: actions/download-artifact@v4
         with:
@@ -182,6 +208,27 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
+
+      - name: Validate SSH public key format (double-check before apply)
+        run: |
+          set -euo pipefail
+          TMPDIR=$(mktemp -d)
+          PUBFILE="$TMPDIR/key.pub"
+          printf '%s' "${{ secrets.SSH_PUBLIC_KEY }}" > "$PUBFILE"
+          tr -d '\r' < "$PUBFILE" > "$PUBFILE.clean"
+          mv "$PUBFILE.clean" "$PUBFILE"
+          if ! head -n1 "$PUBFILE" | grep -E -q '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-)'; then
+            echo "ERROR: SSH_PUBLIC_KEY secret does not start with an OpenSSH key type."
+            rm -rf "$TMPDIR"
+            exit 1
+          fi
+          if ! ssh-keygen -lf "$PUBFILE" >/dev/null 2>&1; then
+            echo "ERROR: ssh-keygen failed to parse the public key; invalid format."
+            rm -rf "$TMPDIR"
+            exit 1
+          fi
+          rm -rf "$TMPDIR"
+          echo "SSH public key format validated."
 
       - name: Terraform Apply (use plan if available)
         working-directory: ./infra/terraform
@@ -218,7 +265,6 @@ jobs:
         run: |
           echo "Waiting a short while for services to come up..."
           sleep 25
-          # Try hitting the frontend and a couple of APIs; failure here won't fail the entire job
           curl -fsS https://${{ secrets.DOMAIN_NAME }} || echo "Frontend not ready yet"
           curl -fsS https://${{ secrets.DOMAIN_NAME }}/api/auth || echo "Auth API not ready yet"
 
